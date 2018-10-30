@@ -23,11 +23,6 @@ DB_HOST=$(aws rds describe-db-instances\
     --output text)
 
 CURRENT_IP=$(dig +short myip.opendns.com @resolver1.opendns.com)
-# aws ec2 authorize-security-group-ingress\
-#     --group-id $RDS_SECURITY_GROUP_ID\
-#     --protocol tcp\
-#     --port $DB_PORT\
-#     --cidr $CURRENT_IP/32
 
 export DATABASE_URL="postgres://$DB_USERNAME:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_INSTANCE_NAME"
 
@@ -61,6 +56,12 @@ EBS_SECURITY_GROUP=$(aws elasticbeanstalk describe-configuration-settings\
 RDS_SECURITY_GROUP_ID=$(aws rds describe-db-instances\
     --query "DBInstances[?starts_with(DBName, `$DB_INSTANCE_NAME`)].VpcSecurityGroups[0].VpcSecurityGroupId"\
     --output text)
+
+aws ec2 authorize-security-group-ingress\
+    --group-id $RDS_SECURITY_GROUP_ID\
+    --protocol tcp\
+    --port $DB_PORT\
+    --cidr $CURRENT_IP/32
 
 aws ec2 authorize-security-group-ingress\
     --group-id $RDS_SECURITY_GROUP_ID\
