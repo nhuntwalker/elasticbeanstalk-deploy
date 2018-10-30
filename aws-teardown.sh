@@ -1,5 +1,4 @@
 #!/bin/bash
-set -e
 
 # Gather secondary artifacts
 RDS_SECURITY_GROUP_ID=$(aws rds describe-db-instances\
