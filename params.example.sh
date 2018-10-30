@@ -20,8 +20,16 @@ export APP_VERSION="XXXXX"
 export FILENAME='XXXX.zip'
 export ARCHIVE_PATH='/path/to/zipped/file/to/deploy/'$FILENAME
 
-TIME_START=$(date +%s)
-./aws-deploy.sh
-TIME_END=$(date +%s)
+if [ "$1" -eq "teardown"]; then
+    TIME_START=$(date +%s)
+    ./aws-teardown.sh
+    TIME_END=$(date +%s)
 
-echo "Artifact provisioning finished in $(expr $TIME_END - $TIME_START) seconds"
+    echo "Artifacts marked for deletion in $(expr $TIME_END - $TIME_START) seconds"
+else 
+    TIME_START=$(date +%s)
+    ./aws-deploy.sh
+    TIME_END=$(date +%s)
+
+    echo "Artifact provisioning finished in $(expr $TIME_END - $TIME_START) seconds"
+fi
