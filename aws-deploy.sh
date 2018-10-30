@@ -14,7 +14,7 @@ aws rds create-db-instance\
     --master-user-password $DB_PASSWORD
     --vpc-security-group-ids $RDS_SG_VPC_ID
 
-RDS_SG_ID=$(aws rds describe-db-instances\
+RDS_SECURITY_GROUP_ID=$(aws rds describe-db-instances\
     --query 'DBInstances[?starts_with(DBName, `'$DB_INSTANCE_NAME'`)].VpcSecurityGroups[0].VpcSecurityGroupId'\
     --output text)
 
@@ -22,33 +22,51 @@ DB_HOST=$(aws rds describe-db-instances\
     --query 'DBInstances[?starts_with(DBName, `'$DB_INSTANCE_NAME'`)].Endpoint.Address'\
     --output text)
 
-export DATABASE_URL="postgres://$DB_USERNAME:$DB_PASSWORD@$DB_HOST:$DB_PORT"
+CURRENT_IP=$(dig +short myip.opendns.com @resolver1.opendns.com)
+aws ec2 authorize-security-group-ingress\
+    --group-id $RDS_SECURITY_GROUP_ID\
+    --protocol tcp\
+    --port $DB_PORT\
+    --cidr $CURRENT_IP/32
 
-# Create the S3 bucket and upload your zip file
-aws s3 mb s3://$BUCKET_NAME
-aws s3 cp $ARCHIVE_PATH s3://$BUCKET_NAME
-
-BEANSTALK_ROLE=$(aws iam list-roles\
-    --query 'Roles[?contains(RoleName, `aws-elasticbeanstalk-ec2-role`)].Arn'\
-    --output text)
-
-aws s3api put-bucket-policy --bucket $BUCKET_NAME --policy $BUCKET_POLICY
-
-S3_ACCESS_POLICY_ID=$(aws iam get-policy\
-    --policy-arn 'arn:aws:iam::aws:policy/AmazonS3FullAccess'\
-    --query 'Policy.PolicyId'\
-    --output text)
-
-S3_ACCESS_POLICY_TEXT=
+export DATABASE_URL="postgres://$DB_USERNAME:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_INSTANCE_NAME"
 
 # Create the beanstalk
 
+BEANSTALK_BUCKET_NAME=$(aws elasticbeanstalk create-storage-location --output text)
+
+aws s3 cp $ARCHIVE_PATH s3://$BEANSTALK_BUCKET_NAME
+
 aws elasticbeanstalk create-application\
-    --application-name flask-expenses\
-    --description "Application for tracking your expenses"
+    --application-name $APP_NAME
 
 aws elasticbeanstalk create-environment\
-    --application-name flask-expenses\
-    --environment-name expenses-env\
-    --version-label v1\
-    --solution-stack-name "64bit Amazon Linux 2018.03 v2.7.4 running Python 3.6"
+    --application-name $APP_NAME\
+    --environment-name $APP_ENV_NAME\
+    --version-label $APP_VERSION\
+    --solution-stack-name "$APP_STACK"
+
+aws elasticbeanstalk update-environment\
+    --environment-name $APP_ENV_NAME\
+    --option-settings Namespace=aws:elasticbeanstalk:application:environment,OptionName=DATABASE_URL,Value=$DATABASE_URL
+
+aws elasticbeanstalk create-application-version\
+    --application-name $APP_NAME\
+    --version-label $APP_VERSION\
+    --source-bundle S3Bucket="$BEANSTALK_BUCKET_NAME",S3Key="$FILENAME"
+
+EBS_SECURITY_GROUP=$(aws elasticbeanstalk describe-configuration-settings --application-name $APP_NAME --environment-name $APP_ENV_NAME --query 'ConfigurationSettings[0].OptionSettings[?contains(Namespace, `aws:autoscaling:launchconfiguration`) && contains(OptionName, `SecurityGroups`)].Value' --output text)
+
+# Update inbound database rules
+
+aws ec2 authorize-security-group-ingress\
+    --group-id $RDS_SECURITY_GROUP_ID\
+    --protocol tcp\
+    --port $DB_PORT\
+    --source-group $EBS_SECURITY_GROUP
+
+aws ec2 authorize-security-group-ingress\
+    --group-name $EBS_SECURITY_GROUP\
+    --protocol tcp\
+    --port $DB_PORT\
+    --source-group $RDS_SECURITY_GROUP_ID
